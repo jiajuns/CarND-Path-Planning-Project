@@ -4,6 +4,8 @@
 #include <string>
 #include <math.h>
 #include <vector>
+#include "Eigen-3.3/Eigen/Core"
+#include "Eigen-3.3/Eigen/QR"
 #include "trajectory_generator.h"
 
 using namespace std;
@@ -50,18 +52,18 @@ int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x,
 	double heading = atan2((map_y-y),(map_x-x));
 
 	double angle = fabs(theta-heading);
-  angle = min(2*pi() - angle, angle);
+    angle = min(2*pi() - angle, angle);
 
-  if(angle > pi()/4)
-  {
-    closestWaypoint++;
-  if (closestWaypoint == maps_x.size())
-  {
-    closestWaypoint = 0;
-  }
-  }
+    if(angle > pi()/4)
+    {
+        closestWaypoint++;
+    if (closestWaypoint == maps_x.size())
+    {
+        closestWaypoint = 0;
+    }
+    }
 
-  return closestWaypoint;
+    return closestWaypoint;
 }
 
 // Transform from Cartesian x,y coordinates to Frenet s,d coordinates
@@ -138,19 +140,56 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 	double y = seg_y + d*sin(perp_heading);
 
 	return {x,y};
-
 }
-TrajectoryGenerator::TrajectoryGenerator(){
 
+// Fit a polynomial.
+// Adapted from
+// https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
+Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
+                        int order) {
+  assert(xvals.size() == yvals.size());
+  assert(order >= 1 && order <= xvals.size() - 1);
+  Eigen::MatrixXd A(xvals.size(), order + 1);
+
+  for (int i = 0; i < xvals.size(); i++) {
+    A(i, 0) = 1.0;
+  }
+
+  for (int j = 0; j < xvals.size(); j++) {
+    for (int i = 0; i < order; i++) {
+      A(j, i + 1) = A(j, i) * xvals(j);
+    }
+  }
+
+  auto Q = A.householderQr();
+  auto result = Q.solve(yvals);
+  return result;
+}
+
+double polyeval(Eigen::VectorXd coeffs, double x) {
+  double result = 0.0;
+  for (int i = 0; i < coeffs.size(); i++) {
+    result += coeffs[i] * pow(x, i);
+  }
+  return result;
+}
+
+
+TrajectoryGenerator::TrajectoryGenerator(vector<double> map_waypoints_x,\
+                                         vector<double> map_waypoints_y,\
+                                         vector<double> map_waypoints_s){
     total_points = 50;
-
+    this -> map_waypoints_x = map_waypoints_x;
+    this -> map_waypoints_y = map_waypoints_y;
+    this -> map_waypoints_s = map_waypoints_s;
 }
 
 TrajectoryGenerator::~TrajectoryGenerator(){}
 
-vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, double car_y, double car_yaw, \
-                                                                 double car_speed, vector<double> previous_path_x, \
-                                                                 vector<double> previous_path_y)
+vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, double car_y, double car_s, double car_d, \
+                                                                 double car_yaw, double car_speed, vector<double> previous_path_x, \
+                                                                 vector<double> previous_path_y, \
+                                                                 vector<vector<double>> sensor_fusion)
 {
     vector<double> next_x_vals;
     vector<double> next_y_vals;
@@ -166,8 +205,8 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
 
     if(prev_size < 2){
         // use last two points as the beginning of new path in order to make sure the path is tangle
-        double prev_car_x = ref_x - cos(car_yaw);
-        double prev_car_y = ref_y - sin(car_yaw);
+        double prev_car_x = ref_x - cos(deg2rad(car_yaw));
+        double prev_car_y = ref_y - sin(deg2rad(car_yaw));
 
         ptsx.push_back(prev_car_x);
         ptsx.push_back(ref_x);
@@ -188,12 +227,67 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
         ptsy.push_back(ref_y);
     }
 
+    // adding way points ahead of the car
+    vector<double> next_wp0 = getXY(car_s + 30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+    vector<double> next_wp1 = getXY(car_s + 60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+    vector<double> next_wp2 = getXY(car_s + 90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+    ptsx.push_back(next_wp0[0]);
+    ptsx.push_back(next_wp1[0]);
+    ptsx.push_back(next_wp2[0]);
+
+    ptsy.push_back(next_wp0[1]);
+    ptsy.push_back(next_wp1[1]);
+    ptsy.push_back(next_wp2[1]);
+
+    // doing polynomial fit to generate optimal track to follow
+    vector<double> waypoints_x;
+    vector<double> waypoints_y;
+
+    for (int i = 0; i < ptsx.size(); i++) {
+        double dx = ptsx[i] - car_x;
+        double dy = ptsy[i] - car_y;
+        waypoints_x.push_back(dx * cos(-deg2rad(car_yaw)) - dy * sin(-deg2rad(car_yaw)));
+        waypoints_y.push_back(dx * sin(-deg2rad(car_yaw)) + dy * cos(-deg2rad(car_yaw)));
+    }
+
+    double* ptrx = &waypoints_x[0];
+    double* ptry = &waypoints_y[0];
+    Eigen::Map<Eigen::VectorXd> waypoints_x_eig(ptrx, 6);
+    Eigen::Map<Eigen::VectorXd> waypoints_y_eig(ptry, 6);
+
+    auto coeffs = polyfit(waypoints_x_eig, waypoints_y_eig, 3);
+
+    // calculate how to break up points in polynomial
+    double target_x = 30;
+    double target_y = polyeval(coeffs, target_x);
+    double target_dist = sqrt(target_x * target_x + target_y * target_y);
 
     double dist_inc = 0.5;
+    int num_pts = 50;
+    double x_add_on = 0;
 
-    for (int i=0; i < total_points; i++){
-        next_x_vals.push_back(car_x + (dist_inc*i)*cos(deg2rad(car_yaw)));
-        next_y_vals.push_back(car_y + (dist_inc*i)*sin(deg2rad(car_yaw)));
+    double x_ref;
+    double y_ref;
+
+    for (int i=0; i <= num_pts; i++){
+
+        double N = (target_dist/(0.02*target_speed/2.24));
+        double x_point = x_add_on + target_x/N;
+        double y_point = polyeval(coeffs, x_point);
+
+        x_add_on = x_point;
+        x_ref = x_point;
+        y_ref = y_point;
+
+        x_point = (x_ref*cos(deg2rad(car_yaw)) - y_ref*sin(deg2rad(car_yaw)));
+        y_point = (x_ref*sin(deg2rad(car_yaw)) + y_ref*cos(deg2rad(car_yaw)));
+
+        x_point += car_x;
+        y_point += car_y;
+
+        next_x_vals.push_back(x_point);
+        next_y_vals.push_back(y_point);
     }
 
     vector<vector<double> > result(2, vector<double>(50));
