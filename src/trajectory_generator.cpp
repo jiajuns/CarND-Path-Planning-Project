@@ -7,6 +7,7 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "trajectory_generator.h"
+#include "spline.h"
 
 using namespace std;
 constexpr double pi() { return M_PI; }
@@ -179,12 +180,34 @@ TrajectoryGenerator::TrajectoryGenerator(vector<double> map_waypoints_x,\
                                          vector<double> map_waypoints_y,\
                                          vector<double> map_waypoints_s){
     total_points = 50;
+    excu_speed = 0;
     this -> map_waypoints_x = map_waypoints_x;
     this -> map_waypoints_y = map_waypoints_y;
     this -> map_waypoints_s = map_waypoints_s;
 }
 
 TrajectoryGenerator::~TrajectoryGenerator(){}
+
+double TrajectoryGenerator::find_ref_v(vector<vector<double>> sensor_fusion, double car_s, double car_d)
+{
+
+    double ref_v = target_speed;
+    for (int i=0; i < sensor_fusion.size(); i++){
+
+        double d = sensor_fusion[i][6];
+        if ((d < car_d + 2) && (d > car_d - 2)){
+
+            double checked_speed = sqrt(pow(sensor_fusion[i][3], 2) + pow(sensor_fusion[i][4], 2));
+            double checked_s = sensor_fusion[i][5];
+            if ((checked_s > car_s) && (checked_s - car_s <= 30)){
+                ref_v = checked_speed;
+            }
+        }
+    }
+    return ref_v;
+}
+
+
 
 vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, double car_y, double car_s, double car_d, \
                                                                  double car_yaw, double car_speed, vector<double> previous_path_x, \
@@ -245,8 +268,8 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
     vector<double> waypoints_y;
 
     for (int i = 0; i < ptsx.size(); i++) {
-        double dx = ptsx[i] - car_x;
-        double dy = ptsy[i] - car_y;
+        double dx = ptsx[i] - ref_x;
+        double dy = ptsy[i] - ref_y;
         waypoints_x.push_back(dx * cos(-deg2rad(car_yaw)) - dy * sin(-deg2rad(car_yaw)));
         waypoints_y.push_back(dx * sin(-deg2rad(car_yaw)) + dy * cos(-deg2rad(car_yaw)));
     }
@@ -256,35 +279,44 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
     Eigen::Map<Eigen::VectorXd> waypoints_x_eig(ptrx, 6);
     Eigen::Map<Eigen::VectorXd> waypoints_y_eig(ptry, 6);
 
-    auto coeffs = polyfit(waypoints_x_eig, waypoints_y_eig, 3);
+    for (int i=0; i < previous_path_x.size(); i++){
+        next_x_vals.push_back(previous_path_x[i]);
+        next_y_vals.push_back(previous_path_y[i]);
+    }
+
+    tk::spline s;
+    s.set_points(waypoints_x, waypoints_y);
 
     // calculate how to break up points in polynomial
     double target_x = 30;
-    double target_y = polyeval(coeffs, target_x);
-    double target_dist = sqrt(target_x * target_x + target_y * target_y);
+    double target_y = s(target_x);
+    double target_dist = sqrt(target_x*target_x + target_y*target_y);
 
-    double dist_inc = 0.5;
-    int num_pts = 50;
+    double ref_v = find_ref_v(sensor_fusion, car_s, car_d);
+
+    if (excu_speed < ref_v){
+        excu_speed += 0.224;
+    } else {
+        cout << ref_v << endl;
+        excu_speed -= 0.224;
+    }
+
     double x_add_on = 0;
+    for (int i=0; i <total_points- previous_path_x.size(); i++){
 
-    double x_ref;
-    double y_ref;
-
-    for (int i=0; i <= num_pts; i++){
-
-        double N = (target_dist/(0.02*target_speed/2.24));
+        double N = (target_dist/(0.02*excu_speed/2.24));
         double x_point = x_add_on + target_x/N;
-        double y_point = polyeval(coeffs, x_point);
+        double y_point = s(x_point);
 
         x_add_on = x_point;
-        x_ref = x_point;
-        y_ref = y_point;
+        double x_temp = x_point;
+        double y_temp = y_point;
 
-        x_point = (x_ref*cos(deg2rad(car_yaw)) - y_ref*sin(deg2rad(car_yaw)));
-        y_point = (x_ref*sin(deg2rad(car_yaw)) + y_ref*cos(deg2rad(car_yaw)));
+        x_point = (x_temp*cos(deg2rad(car_yaw)) - y_temp*sin(deg2rad(car_yaw)));
+        y_point = (x_temp*sin(deg2rad(car_yaw)) + y_temp*cos(deg2rad(car_yaw)));
 
-        x_point += car_x;
-        y_point += car_y;
+        x_point += ref_x;
+        y_point += ref_y;
 
         next_x_vals.push_back(x_point);
         next_y_vals.push_back(y_point);

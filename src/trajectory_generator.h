@@ -33,6 +33,7 @@ public:
 
     string state;
     int total_points;
+    double excu_speed;
     double target_speed = 49.5;
     int lane = 1; // start with lane 1
     vector<double> map_waypoints_x;
@@ -50,6 +51,8 @@ public:
      * Destructor
     */
     virtual ~TrajectoryGenerator();
+
+    double find_ref_v(vector<vector<double>> sensor_fusion, double car_s, double car_d);
 
     vector<vector<double>> keep_lane_trajectory(double car_x, double car_y, double car_s, double car_d,\
                                                 double car_yaw, double car_speed, vector<double> previous_path_x, \
