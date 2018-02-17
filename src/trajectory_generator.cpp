@@ -200,14 +200,26 @@ double TrajectoryGenerator::find_ref_v(vector<vector<double>> sensor_fusion, dou
             double checked_speed = sqrt(pow(sensor_fusion[i][3], 2) + pow(sensor_fusion[i][4], 2));
             double checked_s = sensor_fusion[i][5];
             if ((checked_s > car_s) && (checked_s - car_s <= 30)){
-                ref_v = checked_speed;
+                ref_v = checked_speed * 2.24 + (checked_s - car_s - 30) * tau_dist;
             }
         }
     }
     return ref_v;
 }
 
+double TrajectoryGenerator::pid_speed(double excu_speed, double ref_v)
+{
+    double cte = excu_speed - ref_v;
+    cte_diff = cte - pre_cte;
+    int_cte += cte;
+    excu_speed = excu_speed - tau_p*cte - tau_d*cte_diff - tau_i*int_cte;
+    pre_cte = cte;
 
+    if (cte*pre_cte < 0){
+        int_cte = 0;
+    }
+    return excu_speed;
+}
 
 vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, double car_y, double car_s, double car_d, \
                                                                  double car_yaw, double car_speed, vector<double> previous_path_x, \
@@ -293,13 +305,7 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
     double target_dist = sqrt(target_x*target_x + target_y*target_y);
 
     double ref_v = find_ref_v(sensor_fusion, car_s, car_d);
-
-    if (excu_speed < ref_v){
-        excu_speed += 0.224;
-    } else {
-        cout << ref_v << endl;
-        excu_speed -= 0.224;
-    }
+    excu_speed = pid_speed(excu_speed, ref_v);
 
     double x_add_on = 0;
     for (int i=0; i <total_points- previous_path_x.size(); i++){
