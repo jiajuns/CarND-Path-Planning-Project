@@ -113,10 +113,10 @@ int main() {
           	vector<double> next_x_vals;
           	vector<double> next_y_vals;
 
-						vector<vector<double>> results = trajectory.keep_lane_trajectory(car_x, car_y, car_s, car_d, \
-																																						 car_yaw, car_speed, \
-																																						 previous_path_x, previous_path_y, \
-																																						 sensor_fusion);
+						vector<vector<double>> results = trajectory.path_planning(car_x, car_y, car_s, car_d, \
+																																			car_yaw, car_speed, previous_path_x, \
+																																			previous_path_y, sensor_fusion);
+
 						next_x_vals = results[0];
 						next_y_vals = results[1];
 

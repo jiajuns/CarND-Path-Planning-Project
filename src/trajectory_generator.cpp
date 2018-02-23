@@ -191,7 +191,8 @@ TrajectoryGenerator::~TrajectoryGenerator(){}
 double TrajectoryGenerator::find_ref_v(vector<vector<double>> sensor_fusion, double car_s, double car_d)
 {
 
-    double ref_v = target_speed;
+    double ref_v;
+    ref_v = target_speed;
     for (int i=0; i < sensor_fusion.size(); i++){
 
         double d = sensor_fusion[i][6];
@@ -222,8 +223,8 @@ double TrajectoryGenerator::pid_speed(double excu_speed, double ref_v)
 }
 
 vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, double car_y, double car_s, double car_d, \
-                                                                 double car_yaw, double car_speed, vector<double> previous_path_x, \
-                                                                 vector<double> previous_path_y, \
+                                                                 double car_yaw, double car_speed, double ref_v, \
+                                                                 vector<double> previous_path_x, vector<double> previous_path_y, \
                                                                  vector<vector<double>> sensor_fusion)
 {
     vector<double> next_x_vals;
@@ -304,7 +305,6 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
     double target_y = s(target_x);
     double target_dist = sqrt(target_x*target_x + target_y*target_y);
 
-    double ref_v = find_ref_v(sensor_fusion, car_s, car_d);
     excu_speed = pid_speed(excu_speed, ref_v);
 
     double x_add_on = 0;
@@ -333,4 +333,73 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
     result[1] = next_y_vals;
 
     return result;
+}
+
+vector<vector<double>> TrajectoryGenerator::path_planning(double car_x, double car_y, double car_s, double car_d, \
+                                                          double car_yaw, double car_speed, vector<double> previous_path_x, \
+                                                          vector<double> previous_path_y, \
+                                                          vector<vector<double>> sensor_fusion)
+{
+    vector<vector<double>> results;
+    int current_lane = (int)car_d / 4;
+    if (current_lane != lane){
+        double ref_v = find_ref_v(sensor_fusion, car_s, 4*lane+2);
+        results = keep_lane_trajectory(car_x, car_y, car_s, car_d, \
+                                       car_yaw, car_speed, ref_v, \
+                                       previous_path_x, previous_path_y, \
+                                       sensor_fusion);
+        return results;
+    }
+
+    double ref_v = find_ref_v(sensor_fusion, car_s, car_d);
+    double current_ref_v = ref_v;
+    if(ref_v < target_speed){
+        double fastest_lane = lane;
+        for (int temp_lane=0; temp_lane<3; temp_lane++){
+            double temp_ref_v = target_speed;
+
+            if((lane - temp_lane) > 1 || (lane - temp_lane) < -1){
+                continue;
+            }
+
+            if (lane == temp_lane){
+                temp_ref_v = find_ref_v(sensor_fusion, car_s, car_d);
+                continue;
+            }
+
+            for (int i=0; i<sensor_fusion.size(); i++){
+                double d = sensor_fusion[i][6];
+                if ((d < 4 + 4*temp_lane) && (d > 4*temp_lane)){
+                    double checked_speed = sqrt(pow(sensor_fusion[i][3], 2) + pow(sensor_fusion[i][4], 2));
+                    double checked_s = sensor_fusion[i][5];
+                    if ((checked_s >= car_s) && (checked_s - car_s <= 20)){
+                        temp_ref_v = 0.0;
+                        break;
+                    } else if ((checked_s > car_s) && (checked_s - car_s <= 30)) {
+                        double checked_speed_mph = checked_speed * 2.24;
+                        if (checked_speed_mph < temp_ref_v){
+                            temp_ref_v = checked_speed_mph;
+                        }
+                    }
+                }
+            }
+            if ((temp_ref_v > ref_v) && (temp_ref_v > current_ref_v + 2)){
+                fastest_lane = temp_lane;
+                ref_v = temp_ref_v;
+            }
+        }
+        lane = fastest_lane;
+        results =  keep_lane_trajectory(car_x, car_y, car_s, car_d, \
+                                        car_yaw, car_speed, ref_v, \
+                                        previous_path_x, previous_path_y, \
+                                        sensor_fusion);
+
+    } else {
+        results = keep_lane_trajectory(car_x, car_y, car_s, car_d, \
+                                       car_yaw, car_speed, ref_v, \
+                                       previous_path_x, previous_path_y, \
+                                       sensor_fusion);
+    }
+
+    return results;
 }

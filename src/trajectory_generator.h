@@ -34,10 +34,10 @@ public:
     string state;
     int total_points;
     double excu_speed;
-    double target_speed = 45.0;
+    double target_speed = 48.0;
     int lane = 1; // start with lane 1
 
-    double tau_p = 0.01;
+    double tau_p = 0.015;
     double tau_d = 0.08;
     double tau_i = 0.000002;
     double tau_dist = 0.05;
@@ -63,9 +63,17 @@ public:
     virtual ~TrajectoryGenerator();
 
     double find_ref_v(vector<vector<double>> sensor_fusion, double car_s, double car_d);
+
     double pid_speed(double excu_speed, double ref_v);
+
+    vector<vector<double>> path_planning(double car_x, double car_y, double car_s, double car_d, \
+                                         double car_yaw, double car_speed, vector<double> previous_path_x, \
+                                         vector<double> previous_path_y, \
+                                         vector<vector<double>> sensor_fusion);
+
     vector<vector<double>> keep_lane_trajectory(double car_x, double car_y, double car_s, double car_d,\
-                                                double car_yaw, double car_speed, vector<double> previous_path_x, \
-                                                vector<double> previous_path_y, vector<vector<double>> sensor_fusion);
+                                                double car_yaw, double car_speed, double ref_v, \
+                                                vector<double> previous_path_x,vector<double> previous_path_y, \
+                                                vector<vector<double>> sensor_fusion);
 };
 #endif
