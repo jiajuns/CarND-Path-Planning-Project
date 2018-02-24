@@ -335,13 +335,241 @@ vector<vector<double>> TrajectoryGenerator::keep_lane_trajectory(double car_x, d
     return result;
 }
 
+vector<vector<double>> TrajectoryGenerator::change_lane_left(double car_x, double car_y, double car_s, double car_d,\
+                                                             double car_yaw, double car_speed, double ref_v,\
+                                                             vector<double> previous_path_x, vector<double> previous_path_y,\
+                                                             vector<vector<double>> sensor_fusion)
+{
+    vector<double> next_x_vals;
+    vector<double> next_y_vals;
+
+    double ref_x = car_x;
+    double ref_y = car_y;
+    double ref_yaw = deg2rad(car_yaw);
+
+    vector<double> ptsx;
+    vector<double> ptsy;
+
+    int prev_size = previous_path_x.size();
+    int use_prev = 5;
+
+    if(prev_size < 5){
+        // use last two points as the beginning of new path in order to make sure the path is tangle
+        double prev_car_x = ref_x - cos(deg2rad(car_yaw));
+        double prev_car_y = ref_y - sin(deg2rad(car_yaw));
+
+        ptsx.push_back(prev_car_x);
+        ptsx.push_back(ref_x);
+
+        ptsy.push_back(prev_car_y);
+        ptsy.push_back(ref_y);
+    } else {
+        ref_x = previous_path_x[use_prev - 1];
+        ref_y = previous_path_y[use_prev - 1];
+
+        double ref_x_prev = previous_path_x[use_prev - 2];
+        double ref_y_prev = previous_path_y[use_prev - 2];
+
+        ptsx.push_back(ref_x_prev);
+        ptsx.push_back(ref_x);
+
+        ptsy.push_back(ref_y_prev);
+        ptsy.push_back(ref_y);
+    }
+
+    // adding way points ahead of the car
+    vector<double> next_wp0 = getXY(car_s + 30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+    vector<double> next_wp1 = getXY(car_s + 60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+    vector<double> next_wp2 = getXY(car_s + 90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+    ptsx.push_back(next_wp0[0]);
+    ptsx.push_back(next_wp1[0]);
+    ptsx.push_back(next_wp2[0]);
+
+    ptsy.push_back(next_wp0[1]);
+    ptsy.push_back(next_wp1[1]);
+    ptsy.push_back(next_wp2[1]);
+
+    // doing polynomial fit to generate optimal track to follow
+    vector<double> waypoints_x;
+    vector<double> waypoints_y;
+
+    for (int i = 0; i < ptsx.size(); i++) {
+        double dx = ptsx[i] - ref_x;
+        double dy = ptsy[i] - ref_y;
+        waypoints_x.push_back(dx * cos(-deg2rad(car_yaw)) - dy * sin(-deg2rad(car_yaw)));
+        waypoints_y.push_back(dx * sin(-deg2rad(car_yaw)) + dy * cos(-deg2rad(car_yaw)));
+    }
+
+    double* ptrx = &waypoints_x[0];
+    double* ptry = &waypoints_y[0];
+    Eigen::Map<Eigen::VectorXd> waypoints_x_eig(ptrx, 6);
+    Eigen::Map<Eigen::VectorXd> waypoints_y_eig(ptry, 6);
+
+    for (int i=0; i < use_prev; i++){
+        next_x_vals.push_back(previous_path_x[i]);
+        next_y_vals.push_back(previous_path_y[i]);
+    }
+
+    tk::spline s;
+    s.set_points(waypoints_x, waypoints_y);
+
+    // calculate how to break up points in polynomial
+    double target_x = 30;
+    double target_y = s(target_x);
+    double target_dist = sqrt(target_x*target_x + target_y*target_y);
+
+    excu_speed = pid_speed(excu_speed, ref_v);
+
+    double x_add_on = 0;
+    for (int i=0; i <total_points - use_prev; i++){
+
+        double N = (target_dist/(0.02*excu_speed/2.24));
+        double x_point = x_add_on + target_x/N;
+        double y_point = s(x_point);
+
+        x_add_on = x_point;
+        double x_temp = x_point;
+        double y_temp = y_point;
+
+        x_point = (x_temp*cos(deg2rad(car_yaw)) - y_temp*sin(deg2rad(car_yaw)));
+        y_point = (x_temp*sin(deg2rad(car_yaw)) + y_temp*cos(deg2rad(car_yaw)));
+
+        x_point += ref_x;
+        y_point += ref_y;
+
+        next_x_vals.push_back(x_point);
+        next_y_vals.push_back(y_point);
+    }
+
+    vector<vector<double> > result(2, vector<double>(total_points));
+    result[0] = next_x_vals;
+    result[1] = next_y_vals;
+
+    return result;
+}
+
+vector<vector<double>> TrajectoryGenerator::change_lane_right(double car_x, double car_y, double car_s, double car_d,\
+                                                              double car_yaw, double car_speed, double ref_v,\
+                                                              vector<double> previous_path_x, vector<double> previous_path_y,\
+                                                              vector<vector<double>> sensor_fusion)
+{
+    vector<double> next_x_vals;
+    vector<double> next_y_vals;
+
+    double ref_x = car_x;
+    double ref_y = car_y;
+    double ref_yaw = deg2rad(car_yaw);
+
+    vector<double> ptsx;
+    vector<double> ptsy;
+
+    int prev_size = previous_path_x.size();
+    int use_prev = 5;
+
+    if(prev_size < 5){
+        // use last two points as the beginning of new path in order to make sure the path is tangle
+        double prev_car_x = ref_x - cos(deg2rad(car_yaw));
+        double prev_car_y = ref_y - sin(deg2rad(car_yaw));
+
+        ptsx.push_back(prev_car_x);
+        ptsx.push_back(ref_x);
+
+        ptsy.push_back(prev_car_y);
+        ptsy.push_back(ref_y);
+    } else {
+        ref_x = previous_path_x[use_prev - 1];
+        ref_y = previous_path_y[use_prev - 1];
+
+        double ref_x_prev = previous_path_x[use_prev - 2];
+        double ref_y_prev = previous_path_y[use_prev - 2];
+
+        ptsx.push_back(ref_x_prev);
+        ptsx.push_back(ref_x);
+
+        ptsy.push_back(ref_y_prev);
+        ptsy.push_back(ref_y);
+    }
+
+    // adding way points ahead of the car
+    vector<double> next_wp0 = getXY(car_s + 30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+    vector<double> next_wp1 = getXY(car_s + 60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+    vector<double> next_wp2 = getXY(car_s + 90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+    ptsx.push_back(next_wp0[0]);
+    ptsx.push_back(next_wp1[0]);
+    ptsx.push_back(next_wp2[0]);
+
+    ptsy.push_back(next_wp0[1]);
+    ptsy.push_back(next_wp1[1]);
+    ptsy.push_back(next_wp2[1]);
+
+    // doing polynomial fit to generate optimal track to follow
+    vector<double> waypoints_x;
+    vector<double> waypoints_y;
+
+    for (int i = 0; i < ptsx.size(); i++) {
+        double dx = ptsx[i] - ref_x;
+        double dy = ptsy[i] - ref_y;
+        waypoints_x.push_back(dx * cos(-deg2rad(car_yaw)) - dy * sin(-deg2rad(car_yaw)));
+        waypoints_y.push_back(dx * sin(-deg2rad(car_yaw)) + dy * cos(-deg2rad(car_yaw)));
+    }
+
+    double* ptrx = &waypoints_x[0];
+    double* ptry = &waypoints_y[0];
+    Eigen::Map<Eigen::VectorXd> waypoints_x_eig(ptrx, 6);
+    Eigen::Map<Eigen::VectorXd> waypoints_y_eig(ptry, 6);
+
+    for (int i=0; i < use_prev; i++){
+        next_x_vals.push_back(previous_path_x[i]);
+        next_y_vals.push_back(previous_path_y[i]);
+    }
+
+    tk::spline s;
+    s.set_points(waypoints_x, waypoints_y);
+
+    // calculate how to break up points in polynomial
+    double target_x = 30;
+    double target_y = s(target_x);
+    double target_dist = sqrt(target_x*target_x + target_y*target_y);
+
+    excu_speed = pid_speed(excu_speed, ref_v);
+
+    double x_add_on = 0;
+    for (int i=0; i <total_points - use_prev; i++){
+
+        double N = (target_dist/(0.02*excu_speed/2.24));
+        double x_point = x_add_on + target_x/N;
+        double y_point = s(x_point);
+
+        x_add_on = x_point;
+        double x_temp = x_point;
+        double y_temp = y_point;
+
+        x_point = (x_temp*cos(deg2rad(car_yaw)) - y_temp*sin(deg2rad(car_yaw)));
+        y_point = (x_temp*sin(deg2rad(car_yaw)) + y_temp*cos(deg2rad(car_yaw)));
+
+        x_point += ref_x;
+        y_point += ref_y;
+
+        next_x_vals.push_back(x_point);
+        next_y_vals.push_back(y_point);
+    }
+
+    vector<vector<double> > result(2, vector<double>(total_points));
+    result[0] = next_x_vals;
+    result[1] = next_y_vals;
+
+    return result;
+}
+
 vector<vector<double>> TrajectoryGenerator::path_planning(double car_x, double car_y, double car_s, double car_d, \
                                                           double car_yaw, double car_speed, vector<double> previous_path_x, \
                                                           vector<double> previous_path_y, \
                                                           vector<vector<double>> sensor_fusion)
 {
     vector<vector<double>> results;
-    int current_lane = (int)car_d / 4;
+    int current_lane = (int)car_d/4;
     if (current_lane != lane){
         double ref_v = find_ref_v(sensor_fusion, car_s, 4*lane+2);
         results = keep_lane_trajectory(car_x, car_y, car_s, car_d, \
@@ -372,7 +600,7 @@ vector<vector<double>> TrajectoryGenerator::path_planning(double car_x, double c
                 if ((d < 4 + 4*temp_lane) && (d > 4*temp_lane)){
                     double checked_speed = sqrt(pow(sensor_fusion[i][3], 2) + pow(sensor_fusion[i][4], 2));
                     double checked_s = sensor_fusion[i][5];
-                    if ((checked_s >= car_s) && (checked_s - car_s <= 20)){
+                    if ((checked_s >= car_s - 5) && (checked_s - car_s <= 15)){
                         temp_ref_v = 0.0;
                         break;
                     } else if ((checked_s > car_s) && (checked_s - car_s <= 30)) {
@@ -388,12 +616,24 @@ vector<vector<double>> TrajectoryGenerator::path_planning(double car_x, double c
                 ref_v = temp_ref_v;
             }
         }
-        lane = fastest_lane;
-        results =  keep_lane_trajectory(car_x, car_y, car_s, car_d, \
+        if (lane == fastest_lane){
+            results = keep_lane_trajectory(car_x, car_y, car_s, car_d, \
+                                           car_yaw, car_speed, ref_v, \
+                                           previous_path_x, previous_path_y, \
+                                           sensor_fusion);
+        } else if (lane < fastest_lane){
+            lane = fastest_lane;
+            results =  change_lane_left(car_x, car_y, car_s, car_d, \
                                         car_yaw, car_speed, ref_v, \
                                         previous_path_x, previous_path_y, \
                                         sensor_fusion);
-
+        } else {
+            lane = fastest_lane;
+            results =  change_lane_right(car_x, car_y, car_s, car_d, \
+                                         car_yaw, car_speed, ref_v, \
+                                         previous_path_x, previous_path_y, \
+                                         sensor_fusion);
+        }
     } else {
         results = keep_lane_trajectory(car_x, car_y, car_s, car_d, \
                                        car_yaw, car_speed, ref_v, \

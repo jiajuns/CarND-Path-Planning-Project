@@ -66,14 +66,24 @@ public:
 
     double pid_speed(double excu_speed, double ref_v);
 
-    vector<vector<double>> path_planning(double car_x, double car_y, double car_s, double car_d, \
-                                         double car_yaw, double car_speed, vector<double> previous_path_x, \
-                                         vector<double> previous_path_y, \
+    vector<vector<double>> path_planning(double car_x, double car_y, double car_s, double car_d,\
+                                         double car_yaw, double car_speed, vector<double> previous_path_x,\
+                                         vector<double> previous_path_y,\
                                          vector<vector<double>> sensor_fusion);
 
     vector<vector<double>> keep_lane_trajectory(double car_x, double car_y, double car_s, double car_d,\
-                                                double car_yaw, double car_speed, double ref_v, \
-                                                vector<double> previous_path_x,vector<double> previous_path_y, \
+                                                double car_yaw, double car_speed, double ref_v,\
+                                                vector<double> previous_path_x,vector<double> previous_path_y,\
                                                 vector<vector<double>> sensor_fusion);
+
+    vector<vector<double>> change_lane_right(double car_x, double car_y, double car_s, double car_d,\
+                                             double car_yaw, double car_speed, double ref_v,\
+                                             vector<double> previous_path_x, vector<double> previous_path_y,\
+                                             vector<vector<double>>);
+
+    vector<vector<double>> change_lane_left(double car_x, double car_y, double car_s, double car_d,\
+                                            double car_yaw, double car_speed, double ref_v,\
+                                            vector<double> previous_path_x, vector<double> previous_path_y,\
+                                            vector<vector<double>>);
 };
 #endif
